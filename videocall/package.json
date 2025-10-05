@@ -1,0 +1,32 @@
+{
+  "dependencies": {
+    "@elastic/elasticsearch": "^8.17.1",
+    "@google-cloud/vertexai": "^1.9.3",
+    "@google/generative-ai": "^0.22.0",
+    "assemblyai": "^4.9.0",
+    "axios": "^1.8.3",
+    "cors": "^2.8.5",
+    "dotenv": "^16.4.7",
+    "express": "^4.19.2",
+    "mediasoup": "^3.15.2",
+    "node-cron": "^3.0.3",
+    "nodemon": "^3.1.0",
+    "openai": "^4.87.3",
+    "peerjs": "^1.5.4",
+    "socket.io": "^4.8.1",
+    "uuid": "^10.0.0",
+    "ws": "^8.18.0"
+  },
+  "name": "videocall",
+  "version": "1.0.0",
+  "main": "index.js",
+  "type": "commonjs",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1",
+    "start": "nodemon index.js"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "description": ""
+}
