@@ -1,22 +1,28 @@
 import { useEffect, useRef } from "react";
 
- export const VideoPlayer = ({ stream }) => {
-    const videoRef = useRef(null);
-    useEffect(() => {
-      if (videoRef.current && stream) {
-        videoRef.current.srcObject = stream;
-      }
-      videoRef.current.play().catch((err) => {
-        console.error("error playing video", err);
+export const VideoPlayer = ({ stream, mic, className }) => {
+  const videoRef = useRef(null);
+
+  useEffect(() => {
+    const el = videoRef.current;
+    if (!el || !stream) return;
+
+    if (el.srcObject !== stream) { 
+      el.srcObject = stream;
+      el.play().catch((err) => {
+        console.error("Error playing video:", err);
       });
-    }, [stream]);
-    return (
-      <video
-        ref={videoRef}
-        autoPlay
-        playsInline
-        muted
-        className="w-64 h-48 bg-black rounded"
-      />
-    );
-  };
+    }
+  }, [stream]);
+
+  return (
+    <video
+      ref={videoRef}
+      muted={!mic}
+      autoPlay
+      playsInline
+      className={`w-full h-full ${className || ""}`}
+      style={{ backgroundColor: "#000" }}
+    />
+  );
+};
