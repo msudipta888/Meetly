@@ -12,11 +12,19 @@ import {
   Settings,
   MessageCircle,
   MoreVertical,
+  Camera,
+  CameraOff,
 } from "lucide-react";
 import Draggable from "react-draggable";
-import { useNavigate } from "react-router-dom";
+import { useNavigate, useParams } from "react-router-dom";
+import { useUser } from "@clerk/clerk-react";
 import ScreenShare from "./ScreenShare";
+import Chat from "./Chat";
+import BackgroundChange from "./BackgroundChange";
+
 const Videocall = () => {
+  const { roomId } = useParams();
+  const { user } = useUser();
   const socket = useSocket();
   const deviceRef = useRef();
   const nodeRef = useRef(null);
@@ -31,13 +39,21 @@ const Videocall = () => {
   const [mic, setMic] = useState(true);
   const [pin, setPin] = useState(null);
   const navigate = useNavigate();
+  const [isRun, setIsRun] = useState(true);
+  const [totalTime, setTotalTime] = useState()
+  const [totalSec, setTotalSec] = useState(0)
+  const [isCmeraOpen, setIsCameraOpen] = useState(true)
+  const [mutedUsers, setMutedUsers] = useState({}); // { [peerId]: true|false }
   const [network, setNetwork] = useState({
     producerId: null,
     score: null,
   });
-  useEffect(() => {
-    socket.emit("getRouterRTPCapebilities");
-  }, []);
+
+
+  const [showChat, setShowChat] = useState(false);
+
+
+
   const getStream = async () => {
     try {
       const media = await navigator.mediaDevices.getUserMedia({
@@ -62,6 +78,11 @@ const Videocall = () => {
       console.log("Error in getting user media:", error);
     }
   };
+
+
+
+
+
   const initRoom = async (routerRtpCapabilities) => {
     try {
       if (deviceRef.current) {
@@ -97,7 +118,7 @@ const Videocall = () => {
           sendTransport.on(
             "connect",
             ({ dtlsParameters }, callback, errorCallback) => {
-              console.log("connect with transport");
+              // Connected transport successfully
               socket.emit(
                 "connectTransport",
                 {
@@ -106,20 +127,17 @@ const Videocall = () => {
                 },
                 (res) => {
                   if (!res || res.error) {
-                    console.error("connectTransport error", res?.error);
-                    errorCallback(
-                      new Error(res?.error || "connect transport failed")
-                    );
-                    return;
-                  } else console.log("connectTransport success", res);
-                  callback();
+                    errorCallback(new Error(res?.error || "connect transport failed"));
+                  } else {
+                    callback();
+                  }
                 }
               );
             }
           );
           sendTransport.on(
             "produce",
-            async ({ kind, rtpParameters,appData }, callback, errorCallback) => {
+            async ({ kind, rtpParameters, appData }, callback, errorCallback) => {
               try {
                 console.log(`Producing ${kind}...`);
 
@@ -135,7 +153,6 @@ const Videocall = () => {
                     if (res.error) {
                       errorCallback(new Error(res.error));
                     } else {
-                      console.log("Producer  from server:", res);
                       callback({ id: res.id });
                     }
                   }
@@ -232,9 +249,7 @@ const Videocall = () => {
         kind: res.kind,
         rtpParameters: res.rtpParameters,
       });
-      consumer.on("transportclose", () => {
-        console.log("Consumer transport closed");
-      });
+      consumer.on("transportclose", () => {});
       consumer.on("producerclose", () => {
         if (remoteMediaStreamRef.current) {
           const track = consumer.track;
@@ -313,13 +328,11 @@ const Videocall = () => {
     }
   };
 
-  const newProducerNotify = async ({ producerId, peerId,source }) => {
-   console.log(`new producer: ${producerId} from ${peerId}, source: ${source}`);
+  const newProducerNotify = async ({ producerId, peerId, source }) => {
     try {
       const consumer = await consumeClient(producerId);
       const track = consumer.track;
-      console.log(`New Producer has arraived in the room: ${peerId}`);
-          await new Promise(resolve => setTimeout(resolve, 400));
+      await new Promise(resolve => setTimeout(resolve, 400));
 
       setRemoteStreams((prev) => {
         const newMap = new Map(prev);
@@ -330,12 +343,12 @@ const Videocall = () => {
         }
         if (track.kind === "video") {
           const existingVideoTrack = peerStream.getVideoTracks();
-          if (existingVideoTrack.length>0) {
-         existingVideoTrack.forEach((oldTrack) => {
+          if (existingVideoTrack.length > 0) {
+            existingVideoTrack.forEach((oldTrack) => {
               oldTrack.stop();
               peerStream.removeTrack(oldTrack);
-            });            
-           
+            });
+
           }
         }
         peerStream.addTrack(track);
@@ -376,6 +389,10 @@ const Videocall = () => {
     if (recvTransportRef.current) {
       recvTransportRef.current.close();
     }
+    const finalTime = formatTime(totalSec);
+    setTotalTime(finalTime);
+    setIsRun(false);
+    setTotalSec(0);
     remoteStream.forEach((stream) => {
       stream.getTracks().forEach((track) => track.stop());
     });
@@ -387,11 +404,22 @@ const Videocall = () => {
     remoteMediaStreamRef.current = null;
     socket.disconnect();
 
-    navigate("/");
+    if (socket) {
+      socket.once("connect", () => {
+        console.log("Socket reconnected for next call");
+        navigate("/");
+      });
+      socket.connect();
+    } else {
+      navigate("/");
+    }
   };
   const checkNetworkQuality = ({ producerId, score }) => {
     console.log("score:", score);
-    const numericScore = Math.max(...score.map((s) => s.score ?? 0));
+    const scoreArray = Array.isArray(score) ? score : [];
+    const numericScore = scoreArray.length > 0 
+      ? Math.max(...scoreArray.map((s) => s.score ?? 0)) 
+      : 0;
     console.log(numericScore);
     const level =
       numericScore > 7 ? "good" : numericScore > 4 ? "medium" : "poor";
@@ -403,68 +431,220 @@ const Videocall = () => {
   const togglePin = (pid) => {
     setPin(pin === pid ? null : pid);
   };
+  const mutedUser = ({ userId, muted }) => {
+    if (!userId || !muted) throw new Error("No user id found");
+    setMutedUsers((prev) => ({ ...prev, [userId]: !!muted }))
+  }
 
+
+  const notifyOnCamera = async ({ userId }) => {
+    if (!userId) return;
+    try {
+      setRemoteStreams((prev) => {
+        const stream = prev.get(userId);
+        console.log('notifyOnCamera stream:', stream);
+        if (!stream) {
+          console.log(`No stream for ${userId} - they may have just joined`);
+          return prev;
+        }
+
+        // Clone the stream to force a re-render in VideoPlayer
+        const newStream = new MediaStream(stream.getTracks());
+        const videoTracks = newStream.getVideoTracks();
+        videoTracks.forEach((t) => {
+          t.enabled = true;
+        });
+
+        const newMap = new Map(prev);
+        newMap.set(userId, newStream);
+        return newMap;
+      });
+    } catch (err) {
+      console.error(err);
+    }
+  };
+
+
+  const NotifyOffCamera = async ({ userId }) => {
+    if (!userId) {
+      console.warn("No userId provided");
+      return;
+    }
+    try {
+      setRemoteStreams((prev) => {
+        const stream = prev.get(userId);
+        if (!stream) return prev;
+
+        // Clone the stream to force a re-render in VideoPlayer
+        const newStream = new MediaStream(stream.getTracks());
+        const videoTracks = newStream.getVideoTracks();
+        videoTracks.forEach((t) => {
+          t.enabled = false;
+        });
+
+        const newMap = new Map(prev);
+        newMap.set(userId, newStream);
+        return newMap;
+      });
+    } catch (error) {
+      console.error("Error disabling video:", error);
+    }
+  };
   useEffect(() => {
+    if (!socket) return;
+
     socket.on("routerRtpCapabilities", initRoom);
     socket.on("producerScore", checkNetworkQuality);
     socket.on("newProducer", newProducerNotify);
+    socket.on("mutedUser", mutedUser);
+    socket.on("notifyOpenCamera", notifyOnCamera)
+    socket.on("OffCamera", NotifyOffCamera)
     socket.on("disconnectPeer", disConnectUser);
+    if (socket && roomId) {
+      const onRoomCreated = ({ status }) => {
+        if (status === "success") {
+          socket.emit("getRouterRTPCapebilities");
+        }
+      };
+
+      socket.on("roomCreated", onRoomCreated);
+
+      const email = user?.emailAddresses[0]?.emailAddress;
+      socket.emit("createRoom", { email, roomId });
+    }
 
     return () => {
-      socket.off("routerRtpCapabilities", initRoom);
-      socket.off("newProducer", newProducerNotify);
-      socket.off("disconnectPeer", disConnectUser);
-      socket.on("producerScore", checkNetworkQuality);
+      if (socket) {
+        socket.off("routerRtpCapabilities", initRoom);
+        socket.off("newProducer", newProducerNotify);
+        socket.off("disconnectPeer", disConnectUser);
+        socket.off("mutedUser", mutedUser);
+        socket.off("OffCamera", NotifyOffCamera);
+        socket.off("notifyOpenCamera", notifyOnCamera);
+        socket.off("producerScore", checkNetworkQuality);
+        socket.off("roomCreated");
+      }
     };
-  }, []);
+  }, [socket, roomId, user]);
+  const cameraControl = async () => {
+    setIsCameraOpen(!isCmeraOpen);
+
+    const key = `${socket?.id}-video`;
+    const videoProducer = producerRef.current.get(key);
+
+    if (!isCmeraOpen) {
+      // User is turning camera ON
+      const stream = await getStream();
+      localstreamRef.current.srcObject = stream;
+
+      // We must tell Mediasoup to start sending this new track to everyone
+      if (videoProducer) {
+        try {
+          const newVideoTrack = stream.getVideoTracks()[0];
+          if (newVideoTrack) {
+            await videoProducer.replaceTrack({ track: newVideoTrack });
+            if (videoProducer.paused) {
+              videoProducer.resume();
+            }
+            console.log("Successfully replaced video track on producer");
+          }
+        } catch (err) {
+          console.error("Failed to replace video track", err);
+        }
+      }
+
+      socket?.emit("cameraOpen", { userId: socket?.id })
+    } else {
+      // User is turning camera OFF
+      if (videoProducer) {
+        videoProducer.pause();
+      }
+      if (localstreamRef.current && localstreamRef.current.srcObject) {
+        const tracks = localstreamRef.current.srcObject.getTracks();
+        tracks.forEach((track) => {
+          track.kind === "video" && track.stop();
+        });
+      }
+      localstreamRef.current.srcObject = null;
+      socket?.emit("cameraOff", { userId: socket?.id })
+    }
+  }
+
+  useEffect(() => {
+    if (!isRun) return;
+
+    const interval = setInterval(() => {
+      setTotalSec((prev) => prev + 1);
+    }, 1000);
+
+    return () => clearInterval(interval);
+  }, [isRun]);
+  const formatTime = (sec) => {
+    const hr = Math.floor(sec / 3600);
+    const m = Math.floor(sec / 60);
+    const s = sec % 60;
+
+    return [hr, m, s].map((v) => String(v).padStart(2, "0"))
+      .join(":");
+  }
+
+  const mutedMic = () => {
+    const newMicState = !mic;
+    setMic(newMicState);
+    setMutedUsers((prev) => ({ ...prev, [socket?.id]: !newMicState }))
+    socket?.emit("muted", { userId: socket?.id, muted: !newMicState ? true : false });
+  };
+
 
   return (
-    <div className="h-screen bg-slate-950 text-slate-100 flex flex-col">
-      {/* Top Bar */}
+    <div className="h-screen bg-slate-950 text-slate-100 flex flex-col overflow-x-hidden">
       <header className="sticky top-0 z-40 bg-slate-900/60 backdrop-blur-sm border-b border-slate-800 px-6 py-4">
         <div className="max-w-7xl mx-auto flex items-center justify-between">
           <div className="flex items-center gap-3">
-            <div className="w-10 h-10 bg-gradient-to-br from-blue-500 to-indigo-600 rounded-lg flex items-center justify-center text-white font-bold">
+            <div className="w-10 h-10 bg-gradient-to-br from-blue-500 to-indigo-600 rounded-lg flex items-center justify-center text-white">
               VC
             </div>
             <div>
-              <h1 className="text-sm font-semibold">Video Room</h1>
+              <h1 className="text-sm">Video Room</h1>
               <p className="text-xs text-slate-400">
                 Live • {remoteStream.size + 1} participants
               </p>
             </div>
           </div>
 
-          <div className="flex items-center gap-4">
+          <div className={`flex items-center ${showChat ? "pr-[400px]" : ""} gap-4`}>
             <div className="flex items-center gap-2 bg-slate-800/60 rounded-lg px-3 py-2 text-sm text-slate-300">
               <Clock size={16} />
+              <span className="font-mono">{formatTime(totalSec)}</span>
             </div>
-            <button className="p-2 rounded-lg hover:bg-slate-800 transition-colors">
-              <MessageCircle size={20} />
-            </button>
-
+            <div>
+              <button className="p-2 cursor-pointer rounded-lg hover:bg-slate-800 transition-colors" onClick={() => setShowChat(!showChat)}>
+                <MessageCircle size={20} />
+              </button>
+              <Chat setShowChat={setShowChat} showChat={showChat} roomUuid={roomId} />
+            </div>
             <button
-              className="px-4 py-2 bg-red-600 hover:bg-red-700 rounded-lg transition-colors flex items-center gap-2 text-sm font-medium"
+              className="px-4 py-2 bg-red-600 hover:bg-red-700 rounded-lg transition-colors flex items-center gap-2 text-sm"
               onClick={leaveCall}
             >
               <Phone size={18} />
               <span className="hidden sm:inline">Leave</span>
             </button>
+
           </div>
         </div>
       </header>
 
-      {/* Main */}
-      <main className="flex-1 min-h-0">
-        <div className="max-w-7xl mx-auto h-full px-6 py-6 relative">
+      <main className="flex-1 min-h-0 overflow-y-hidden">
+        <div className={`max-w-7xl mx-auto h-full px-6 py-6 relative ${showChat ? "pr-[400px]" : ""}`}>
           <section
             className="flex flex-col gap-6 h-full min-h-0"
             style={{ height: "calc(100vh - 96px)" }}
           >
-            <div className="flex-1 min-h-0 overflow-auto pb-32">
+            <div className="flex-1 min-h-0 overflow-y-auto scroll-smooth pb-32">
               <div
                 ref={parentRef}
-    className={`fixed inset-0 z-40 bg-black/30 ${pin===null ? "":"backdrop-blur-sm"}  pointer-events-none transition-all duration-300`}
+                className={`fixed inset-0 z-40 bg-black/30 ${pin === null ? "" : "backdrop-blur-sm"}  pointer-events-none transition-all duration-300`}
                 style={{ paddingTop: "4.5rem" }}
               >
                 {pin !== null && remoteStream.has(pin) && (
@@ -527,43 +707,53 @@ const Videocall = () => {
                 )}
               </div>
 
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 items-stretch">
+              <div className={`grid grid-cols-1 ${showChat ? "right-[30rem]" : ""} sm:grid-cols-2 gap-4 items-stretch`}>
                 {Array.from(remoteStream.entries()).map(([pid, stream]) => {
                   const isPinned = pin === pid;
+                  const hasVideo = stream && stream.getVideoTracks().length > 0 && stream.getVideoTracks()[0].enabled;
 
                   return (
-                    <div
-                      key={pid}
-                      className="relative rounded-xl overflow-hidden  hover:shadow-xl transition-all duration-200 group "
-                    >
+                    <div key={pid} className="relative rounded-xl overflow-hidden hover:shadow-xl transition-all duration-200 group">
+
                       <div
-                        className={`w-full ${
-                          isPinned ? "aspect-[16/8]" : "aspect-[16/9]"
-                        } max-h-[460px] sm:max-h-[380px]`}
+                        className={`w-full ${isPinned ? "aspect-[16/8]" : "aspect-[16/9]"
+                          } max-h-[460px] sm:max-h-[380px] bg-slate-800`}
                       >
-                        <VideoPlayer
-                          stream={stream}
-                          mic={mic}
-                          className={`w-full h-full object-cover ${
-                            isPinned ? "opacity-80 scale-95" : ""
-                          }`}
-                        />
+                        {hasVideo ? (
+                          <VideoPlayer
+                            stream={stream}
+                            mic={mic}
+                            className={`w-full h-full object-cover ${isPinned ? "opacity-80 scale-95" : ""
+                              }`}
+                          />
+                        ) : (
+                          <div className="w-full h-full bg-gradient-to-br from-slate-700 to-slate-900 flex items-center justify-center">
+                            <div className="flex flex-col items-center gap-2">
+                              <CameraOff size={48} className="text-slate-400" />
+                              <span className="text-sm text-slate-400">Camera Off</span>
+                            </div>
+                          </div>
+                        )}
                       </div>
 
-                      <div className="absolute top-3 right-3 flex items-center gap-2 bg-green-500/90 px-2 py-1 rounded-full text-xs font-medium text-white z-30">
-                        <span className="w-2 h-2 bg-white rounded-full inline-block" />
-                        <span>Live</span>
+                      {/* Status Badge */}
+                      <div className="absolute top-3 right-3 flex items-center gap-2 bg-slate-800/90 px-2 py-1 rounded-full text-xs z-30">
+                        <span className={`w-2 h-2 rounded-full inline-block ${hasVideo ? "bg-green-500" : "bg-red-500"
+                          }`} />
+                        <span className={hasVideo ? "text-green-400" : "text-red-400"}>
+                          {hasVideo ? "Live" : "Camera Off"}
+                        </span>
                       </div>
 
+                      {/* Pin Button */}
                       <button
                         onClick={() => togglePin(pid)}
                         aria-pressed={isPinned}
                         title={isPinned ? "Unpin" : "Pin"}
-                        className={`absolute bottom-3 right-3 w-9 h-9 rounded-full flex items-center justify-center transition-all duration-200 z-30 ${
-                          isPinned
-                            ? "bg-orange-500 hover:bg-orange-600 text-white"
-                            : "opacity-0 group-hover:opacity-100 bg-blue-500 hover:bg-blue-600 text-white"
-                        }`}
+                        className={`absolute bottom-3 right-3 w-9 h-9 rounded-full flex items-center justify-center transition-all duration-200 z-30 ${isPinned
+                          ? "bg-orange-500 hover:bg-orange-600 text-white"
+                          : "opacity-0 group-hover:opacity-100 bg-blue-500 hover:bg-blue-600 text-white"
+                          }`}
                       >
                         📌
                       </button>
@@ -574,20 +764,32 @@ const Videocall = () => {
             </div>
           </section>
 
-          {/* Controls: absolutely positioned so they don't change page height */}
           <div className="absolute left-1/2 transform -translate-x-1/2 bottom-6 z-50">
             <div className="flex items-center justify-center py-3">
-              <div className="flex items-center gap-16 bg-slate-900/60 px-6 py-3 rounded-full shadow-lg">
+              <div className="flex items-center gap-3 bg-slate-900/95 backdrop-blur-md px-6 py-3 rounded-full shadow-2xl border border-slate-800/50">
                 <button
-                  onClick={() => setMic(!mic)}
-                  className={`p-3 rounded-full cursor-pointer transition-transform transform ${
-                    mic
+                  onClick={mutedMic}
+                  className={`p-3 rounded-full cursor-pointer transition-all transform hover:scale-105 ${mic
+                    ? "bg-slate-700 hover:bg-slate-600 text-slate-200"
+                    : "bg-red-600 hover:bg-red-700 text-white"
+                    }`}
+                  aria-pressed={mic}
+                  title={mic ? "Mute" : "Unmute"}
+                >
+                  {mic ? <Mic size={24} /> : <MicOff size={24} />}
+                </button>
+
+                <button
+                  onClick={cameraControl}
+                  className={`p-3 rounded-full transition-all transform hover:scale-105 cursor-pointer
+                    ${isCmeraOpen
                       ? "bg-slate-700 hover:bg-slate-600 text-slate-200"
                       : "bg-red-600 hover:bg-red-700 text-white"
-                  }`}
-                  aria-pressed={mic}
+                    }
+                  `}
+                  title={isCmeraOpen ? "Turn Off Camera" : "Turn On Camera"}
                 >
-                  {mic ? <Mic size={30} /> : <MicOff size={30} />}
+                  {isCmeraOpen ? <Camera size={24} /> : <CameraOff size={24} />}
                 </button>
 
                 <ScreenShare
@@ -595,22 +797,30 @@ const Videocall = () => {
                   sendTransportRef={sendTransportRef}
                   localcameraStreamRef={localcameraStreamRef}
                   localstreamRef={localstreamRef}
-                  localPeerId={socket.id}
+                  localPeerId={socket?.id}
+                />
+
+                <BackgroundChange
+                  localstreamRef={localstreamRef}
+                  localcameraStreamRef={localcameraStreamRef}
+                  sendTransportRef={sendTransportRef}
+                  producerRef={producerRef}
+                  socket={socket}
                 />
 
                 <button
-                  className="p-3 rounded-full transition-transform transform hover:-translate-y-0.5 cursor-pointer bg-red-500 hover:bg-slate-600 text-slate-200"
+                  className="p-3 rounded-full transition-all transform hover:scale-105 cursor-pointer bg-red-600 hover:bg-red-700 text-white"
                   onClick={leaveCall}
+                  title="Leave Call"
                 >
-                  <Phone size={30} />
+                  <Phone size={24} />
                 </button>
               </div>
             </div>
           </div>
 
-          {/* Local preview — bottom-right, won't affect layout */}
           <div className="pointer-events-none overflow-hidden">
-            <div className="pointer-events-auto absolute bottom-6 right-6 w-40 h-24 rounded-lg overflow-hidden bg-slate-800 border border-slate-700 hidden sm:block shadow-lg">
+            <div className={`pointer-events-auto absolute bottom-6 ${showChat ? "left-[4px]" : "right-6"} w-52 h-40 rounded-xl overflow-hidden bg-slate-800/90 backdrop-blur-md border-2 border-slate-700/50 hidden sm:block shadow-2xl`}>
               <video
                 ref={localstreamRef}
                 muted={!mic}
@@ -618,11 +828,15 @@ const Videocall = () => {
                 playsInline
                 className="w-full h-full object-cover"
               />
+              <div className="absolute top-3 left-3 bg-green-500/90 backdrop-blur-sm px-2 py-1 rounded-full text-xs flex items-center gap-1">
+                <span className="w-2 h-2 bg-white rounded-full animate-pulse" />
+                You
+              </div>
             </div>
 
-            <div className="mr-4 text-xs text-slate-400 absolute bottom-6 left-6">
+            <div className={`text-xs ${showChat ? "left-[12rem]" : ""} text-slate-400 absolute bottom-6 left-6 bg-slate-900/80 backdrop-blur-sm px-3 py-2 rounded-lg border border-slate-800`}>
               Network:{" "}
-              <span className="text-green-400 font-medium">
+              <span className="text-green-500">
                 {network.score}
               </span>
             </div>

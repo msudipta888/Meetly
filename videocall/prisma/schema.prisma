@@ -1,15 +1,186 @@
-// This is your Prisma schema file,
-// learn more about it in the docs: https://pris.ly/d/prisma-schema
-
-// Looking for ways to speed up your queries, or scale easily with your serverless or edge functions?
-// Try Prisma Accelerate: https://pris.ly/cli/accelerate-init
-
 generator client {
   provider = "prisma-client-js"
-  output   = "../generated/prisma"
 }
 
 datasource db {
   provider = "postgresql"
   url      = env("DATABASE_URL")
+}
+
+// ──────────────────────────────────────────────
+// ENUMS
+// ──────────────────────────────────────────────
+
+enum RoomType {
+  INSTANT
+  GROUP
+  SCHEDULED
+}
+
+enum RoomStatus {
+  WAITING
+  ACTIVE
+  ENDED
+}
+
+enum ParticipantRole {
+  HOST
+  CO_HOST
+  PARTICIPANT
+}
+
+enum ContactStatus {
+  PENDING
+  ACCEPTED
+  BLOCKED
+}
+
+// ──────────────────────────────────────────────
+// USER
+// ──────────────────────────────────────────────
+
+model User {
+  id        String   @id @default(cuid())
+  clerkId   String   @unique
+  email     String   @unique
+  name      String?
+  imageUrl  String?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  // Relations
+  roomsCreated     Room[]            @relation("RoomCreator")
+  participations   RoomParticipant[]
+  messagesSent     ChatMessage[]
+  callSessions     CallSession[]
+  contactsSent     Contact[]         @relation("ContactSender")
+  contactsReceived Contact[]         @relation("ContactReceiver")
+
+  @@index([clerkId])
+  @@index([email])
+}
+
+// ──────────────────────────────────────────────
+// ROOM
+// ──────────────────────────────────────────────
+
+model Room {
+  id          String     @id @default(cuid())
+  roomUuid    String     @unique
+  title       String?
+  type        RoomType   @default(GROUP)
+  status      RoomStatus @default(WAITING)
+  isRecording Boolean    @default(false)
+
+  creatorId String
+  creator   User   @relation("RoomCreator", fields: [creatorId], references: [id], onDelete: Cascade)
+  totalParticipents Int        @default(0)
+  scheduledAt DateTime?
+  startedAt   DateTime?
+  endedAt     DateTime?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  // Relations
+  participants RoomParticipant[]
+  messages     ChatMessage[]
+  callSessions CallSession[]
+
+  @@index([roomUuid])
+  @@index([creatorId])
+  @@index([status])
+  @@index([scheduledAt])
+}
+
+// ──────────────────────────────────────────────
+// ROOM PARTICIPANT
+// ──────────────────────────────────────────────
+
+model RoomParticipant {
+  id String @id @default(cuid())
+
+  userId String
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  roomId String
+  room   Room   @relation(fields: [roomId], references: [id], onDelete: Cascade)
+
+  role     ParticipantRole @default(PARTICIPANT)
+  joinedAt DateTime        @default(now())
+  leftAt   DateTime?
+  wasAudioMuted Boolean @default(false)
+  wasVideoOff       Boolean         @default(false)
+
+  @@unique([userId, roomId, joinedAt])
+  @@index([userId])
+  @@index([roomId])
+}
+
+// ──────────────────────────────────────────────
+// CHAT MESSAGE
+// ──────────────────────────────────────────────
+
+model ChatMessage {
+  id String @id @default(cuid())
+
+  senderId String
+  sender   User   @relation(fields: [senderId], references: [id], onDelete: Cascade)
+
+  roomId String
+  room   Room   @relation(fields: [roomId], references: [id], onDelete: Cascade)
+
+  content String @db.Text
+  sentAt  DateTime @default(now())
+
+  @@index([roomId, sentAt])
+  @@index([senderId])
+}
+
+// ──────────────────────────────────────────────
+// CALL SESSION
+// ──────────────────────────────────────────────
+
+model CallSession {
+  id String @id @default(cuid())
+
+  userId String
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  roomId String
+  room   Room   @relation(fields: [roomId], references: [id], onDelete: Cascade)
+
+  joinedAt DateTime @default(now())
+  leftAt   DateTime?
+
+  avgNetworkScore  Float?
+  peakParticipants Int?
+  durationSec      Int?
+
+  @@index([userId])
+  @@index([roomId])
+  @@index([joinedAt])
+}
+
+// ──────────────────────────────────────────────
+// CONTACT
+// ──────────────────────────────────────────────
+
+model Contact {
+  id String @id @default(cuid())
+
+  senderId String
+  sender   User   @relation("ContactSender", fields: [senderId], references: [id], onDelete: Cascade)
+
+  receiverId String
+  receiver   User   @relation("ContactReceiver", fields: [receiverId], references: [id], onDelete: Cascade)
+
+  status    ContactStatus @default(PENDING)
+  createdAt DateTime      @default(now())
+  updatedAt DateTime      @updatedAt
+
+  @@unique([senderId, receiverId])
+  @@index([senderId])
+  @@index([receiverId])
+  @@index([status])
 }

@@ -1,4 +1,4 @@
- const mediaCodecs = [
+ export const mediaCodecs = [
    {
     kind: 'video',
     mimeType: 'video/H264',
@@ -25,4 +25,3 @@
     },
   },
 ];
-module.exports={mediaCodecs}

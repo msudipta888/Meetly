@@ -26,3 +26,4 @@ export const VideoPlayer = ({ stream, mic, className }) => {
     />
   );
 };
+

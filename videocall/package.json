@@ -1,5 +1,6 @@
 {
   "dependencies": {
+    "@clerk/express": "^1.7.60",
     "@elastic/elasticsearch": "^8.17.1",
     "@google-cloud/vertexai": "^1.9.3",
     "@google/generative-ai": "^0.22.0",
@@ -10,19 +11,29 @@
     "cors": "^2.8.5",
     "dotenv": "^16.4.7",
     "express": "^4.19.2",
+    "express-openid-connect": "^2.19.2",
+    "express-rate-limit": "^8.2.1",
+    "express-session": "^1.18.2",
+    "inngest": "^3.48.1",
     "mediasoup": "^3.15.2",
     "node-cron": "^3.0.3",
     "nodemon": "^3.1.0",
     "openai": "^4.87.3",
+    "openpgp": "^6.2.2",
+    "passport": "^0.7.0",
+    "passport-google-oauth20": "^2.0.0",
     "peerjs": "^1.5.4",
+    "pg": "^8.16.3",
+    "redis": "^5.8.3",
     "socket.io": "^4.8.1",
+    "svix": "^1.82.0",
     "uuid": "^10.0.0",
     "ws": "^8.18.0"
   },
   "name": "videocall",
   "version": "1.0.0",
   "main": "index.js",
-  "type": "commonjs",
+  "type": "module",
   "scripts": {
     "test": "echo \"Error: no test specified\" && exit 1",
     "start": "nodemon index.js"
